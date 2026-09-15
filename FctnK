@@ -1,0 +1,49 @@
+import React from 'react';
+
+export default function FctnKnob({ positions, value, onChange }) {
+  const idx = positions.indexOf(value);
+  const n = positions.length;
+  const R = 84;
+
+  return (
+    <div className="flex flex-col items-center gap-1.5">
+      <div className="relative w-[200px] h-[200px] flex items-center justify-center">
+        {positions.map((p, i) => {
+          // clockwise from bottom: start at 90° (bottom), decrement
+          const ang = ((90 - (360 / n) * i) * Math.PI) / 180;
+          const x = Math.cos(ang) * R;
+          const y = Math.sin(ang) * R;
+          const active = p === value;
+          const boxed = p === 'STBY' || p === 'Z';
+          return (
+            <button
+              key={p}
+              onClick={() => onChange(p)}
+              className={`absolute font-mono text-[9px] tracking-wider whitespace-nowrap transition-colors ${
+                active ? 'text-[#f7d560] font-bold' : 'text-white/80 hover:text-white'
+              }`}
+              style={{ transform: `translate(${x}px, ${y}px)` }}
+            >
+              {boxed ? `[${p}]` : p}
+            </button>
+          );
+        })}
+
+        <button
+          onClick={() => onChange(positions[(idx + 1) % n])}
+          className="relative w-[92px] h-[92px] rounded-full border-2 border-black/70 bg-[linear-gradient(145deg,#5a604e,#2a2e26)] shadow-[0_5px_12px_rgba(0,0,0,0.6),inset_0_2px_0_rgba(255,255,255,0.12)] active:scale-95 transition-transform"
+          aria-label="FCTN knob"
+        >
+          <div
+            className="absolute inset-0 transition-transform duration-300 ease-out"
+            style={{ transform: `rotate(${idx * (360 / n)}deg)` }}
+          >
+            <div className="absolute left-1/2 -translate-x-1/2 top-1.5 w-1.5 h-7 rounded-full bg-[#f0f0f0] shadow" />
+          </div>
+          <div className="absolute inset-[34%] rounded-full bg-black/30" />
+        </button>
+      </div>
+      <div className="font-mono text-[10px] tracking-[0.3em] text-white/70">FCTN</div>
+    </div>
+  );
+}
