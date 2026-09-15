@@ -1,0 +1,71 @@
+import { createClientFromRequest } from 'npm:@base44/sdk@0.8.44';
+
+const HEADERS = ['Date', 'Name', 'Email', 'Completion Time (s)', 'Accuracy (%)', 'Errors', 'Mode'];
+
+export default async function(req) {
+  try {
+    const base44 = createClientFromRequest(req);
+    const body = await req.json();
+    const name = body?.name?.toString().trim();
+    const email = body?.email?.toString().trim();
+    if (!name || !email) return Response.json({ error: 'Name and email required' }, { status: 400 });
+
+    const completionTime = Number(body?.completionTime) || 0;
+    const accuracy = Number(body?.accuracy) || 0;
+    const errors = Number(body?.errors) || 0;
+    const mode = body?.mode?.toString() || '';
+
+    const { accessToken } = await base44.asServiceRole.connectors.getConnection('googlesheets');
+    const auth = { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' };
+
+    // Get the log spreadsheet, or create it on first run.
+    let sheetId, sheetUrl;
+    const existing = await base44.asServiceRole.entities.PracticeSheet.list();
+    if (existing && existing.length > 0) {
+      sheetId = existing[0].spreadsheet_id;
+      sheetUrl = existing[0].spreadsheet_url;
+    } else {
+      const createRes = await fetch('https://sheets.googleapis.com/v4/spreadsheets', {
+        method: 'POST',
+        headers: auth,
+        body: JSON.stringify({ properties: { title: 'ASIP Practice Sessions' } })
+      });
+      if (!createRes.ok) {
+        const e = await createRes.text();
+        return Response.json({ error: 'Failed to create spreadsheet: ' + e }, { status: 502 });
+      }
+      const created = await createRes.json();
+      sheetId = created.spreadsheetId;
+      sheetUrl = created.spreadsheetUrl;
+      await base44.asServiceRole.entities.PracticeSheet.create({ spreadsheet_id: sheetId, spreadsheet_url: sheetUrl });
+    }
+
+    // Ensure a header row exists (idempotent — handles a sheet created before this fix).
+    const readRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent('A1:G1')}`, {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    });
+    const readData = await readRes.json().catch(() => ({}));
+    if (!readData.values || readData.values.length === 0) {
+      await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent('A1:G1')}?valueInputOption=RAW`, {
+        method: 'PUT',
+        headers: auth,
+        body: JSON.stringify({ values: [HEADERS] })
+      });
+    }
+
+    const date = new Date().toISOString();
+    const appendRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent('A:G')}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, {
+      method: 'POST',
+      headers: auth,
+      body: JSON.stringify({ values: [[date, name, email, completionTime, accuracy, errors, mode]] })
+    });
+    if (!appendRes.ok) {
+      const e = await appendRes.text();
+      return Response.json({ error: 'Failed to append row: ' + e }, { status: 502 });
+    }
+
+    return Response.json({ success: true, spreadsheet_url: sheetUrl });
+  } catch (error) {
+    return Response.json({ error: error.message }, { status: 500 });
+  }
+}
