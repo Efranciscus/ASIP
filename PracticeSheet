@@ -1,0 +1,15 @@
+{
+  "name": "PracticeSheet",
+  "type": "object",
+  "properties": {
+    "spreadsheet_id": {
+      "type": "string"
+    },
+    "spreadsheet_url": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "spreadsheet_id"
+  ]
+}
