@@ -1,0 +1,45 @@
+import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+
+export default function SignIn() {
+  const navigate = useNavigate();
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [err, setErr] = useState('');
+
+  const submit = (e) => {
+    e.preventDefault();
+    if (!name.trim() || !email.trim()) { setErr('Please enter your name and email.'); return; }
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim())) { setErr('Please enter a valid email.'); return; }
+    localStorage.setItem('asip_user', JSON.stringify({ name: name.trim(), email: email.trim() }));
+    navigate('/');
+  };
+
+  return (
+    <div className="min-h-screen bg-stone-50 flex items-center justify-center px-6">
+      <div className="w-full max-w-md">
+        <p className="font-mono text-[11px] tracking-[0.35em] text-stone-400 uppercase">Field Trainer</p>
+        <h1 className="mt-3 font-heading text-3xl font-light tracking-tight text-stone-900">AN/PRC-119F ASIP</h1>
+        <p className="mt-3 text-stone-500 leading-relaxed">
+          Sign in with your name and email to begin a practice session. Your setup accuracy and
+          completion time are logged for performance tracking.
+        </p>
+        <form onSubmit={submit} className="mt-8 space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="name">Name</Label>
+            <Input id="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="email">Email</Label>
+            <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" />
+          </div>
+          {err && <p className="text-sm text-red-600">{err}</p>}
+          <Button type="submit" className="w-full">Start Practice</Button>
+        </form>
+      </div>
+    </div>
+  );
+}
