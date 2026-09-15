@@ -1,0 +1,235 @@
+import { useState, useCallback } from 'react';
+
+// FCTN positions clockwise from bottom (matches ASIP faceplate)
+const FCTN_POSITIONS = ['LD', 'TST', 'STBY', 'ON', 'SQ', 'OFF', 'RXMT', 'REM', 'Z'];
+const CHANNELS = ['1', '2', '3', '4', '5', '6'];
+const RF_POWER = ['LO', 'ME', 'HI'];
+const MENU_SETTINGS = ['VOL', 'CHAN', 'PWR', 'MODE'];
+
+const ERROR_MSGS = new Set(['NO BATTERY', 'BAD FREQ', 'FCTN>LD', 'CHAN 1-6', 'VOL 0-5', 'PWR 1-3', 'MODE 1-3', 'FREQ 1ST', 'NO BATT']);
+
+const inBand = (f) => {
+  const n = parseInt(f, 10);
+  return n >= 30000 && n <= 87975 && n % 25 === 0;
+};
+
+export default function useRadio() {
+  const [fctn, setFctn] = useState('OFF');
+  const [chan, setChan] = useState('1');
+  const [rfPwr, setRfPwr] = useState('LO');
+  const [opMode, setOpMode] = useState('SC/PT'); // FH | SC/PT | SC/CT
+  const [volume, setVolume] = useState(0);
+  const [channels, setChannels] = useState({});
+  const [mode, setMode] = useState('idle'); // idle | freq_entry | store_select
+  const [menu, setMenu] = useState(null); // null | 0..3
+  const [buffer, setBuffer] = useState('');
+  const [message, setMessage] = useState('');
+  const [xmit, setXmit] = useState(false);
+  const [errors, setErrors] = useState(0);
+
+  // physical connections
+  const [battery, setBattery] = useState(false);
+  const [antenna, setAntenna] = useState(false);
+  const [handmic, setHandmic] = useState(false);
+
+  const powered = fctn !== 'OFF';
+  const loaded = Boolean(channels[chan]);
+  const ready =
+    (fctn === 'SQ' || fctn === 'ON') &&
+    volume > 0 &&
+    (opMode === 'FH' || loaded) &&
+    antenna &&
+    handmic;
+
+  const flash = (t) => {
+    setMessage(t);
+    setTimeout(() => setMessage(''), 1600);
+    if (ERROR_MSGS.has(t)) setErrors((e) => e + 1);
+  };
+
+  const turnFctn = useCallback(
+    (pos) => {
+      if (pos !== 'OFF' && !battery) {
+        flash('NO BATTERY');
+        return;
+      }
+      setFctn(pos);
+      setMode('idle');
+      setMenu(null);
+      setBuffer('');
+      setXmit(false);
+      if (pos === 'Z') {
+        setChannels({});
+        setOpMode('FH');
+        setChan('1');
+        setVolume(0);
+        flash('Z-FH');
+      } else if (pos === 'TST') {
+        flash('GOOD');
+      }
+    },
+    [battery]
+  );
+
+  const press = useCallback(
+    (key) => {
+      if (!powered) return;
+
+      // Menu mode: digits adjust the current setting, MENU/CLR cycles, FREQ exits to load.
+      if (menu !== null) {
+        if (key === 'CLR') {
+          setMenu(menu === MENU_SETTINGS.length - 1 ? null : menu + 1);
+          return;
+        }
+        if (/^[0-9]$/.test(key)) {
+          if (menu === 0) {
+            const v = Number(key);
+            if (v > 5) return flash('VOL 0-5');
+            setVolume(v);
+            return flash('VOL ' + v);
+          }
+          if (menu === 1) {
+            if (key === '0' || Number(key) > 6) return flash('CHAN 1-6');
+            setChan(key);
+            return flash('CH ' + key);
+          }
+          if (menu === 2) {
+            const map = { '1': 'LO', '2': 'ME', '3': 'HI' };
+            if (!map[key]) return flash('PWR 1-3');
+            setRfPwr(map[key]);
+            return flash('PWR ' + map[key]);
+          }
+          if (menu === 3) {
+            const map = { '1': 'FH', '2': 'SC/PT', '3': 'SC/CT' };
+            if (!map[key]) return flash('MODE 1-3');
+            setOpMode(map[key]);
+            return flash(map[key]);
+          }
+          return;
+        }
+        if (key === 'FREQ') {
+          setMenu(null); // fall through to FREQ handler below
+        } else {
+          setMenu(null);
+          return;
+        }
+      }
+
+      if (key === 'FREQ') {
+        if (fctn !== 'LD') return flash('FCTN>LD');
+        setMode('freq_entry');
+        setBuffer('');
+        return;
+      }
+
+      if (key === 'CLR') {
+        if (mode === 'freq_entry' || mode === 'store_select') {
+          setBuffer('');
+          setMode('idle');
+          return;
+        }
+        setMenu(0);
+        setMode('idle');
+        setBuffer('');
+        return;
+      }
+
+      if (key === 'STO') {
+        if (mode !== 'freq_entry') return flash('FREQ 1ST');
+        if (buffer.length !== 5 || !inBand(buffer)) return flash('BAD FREQ');
+        setMode('store_select');
+        return;
+      }
+
+      if (key === 'BATT') {
+        return flash(battery ? 'BATT OK' : 'NO BATT');
+      }
+
+      // Acknowledge other keypad functions (idle only)
+      if (mode === 'idle') {
+        const ack = { ERF: 'OFST', TIME: 'TIME' };
+        if (ack[key]) return flash(ack[key]);
+      }
+
+      if (/^[0-9]$/.test(key)) {
+        if (mode === 'store_select') {
+          if (key === '0' || Number(key) > 6) return flash('CHAN 1-6');
+          setChannels((c) => ({ ...c, [key]: buffer }));
+          setChan(key);
+          setMode('idle');
+          setBuffer('');
+          return flash('STORED ' + key);
+        }
+        if (mode === 'freq_entry') {
+          setBuffer((b) => (b.length >= 5 ? b : b + key));
+          return;
+        }
+      }
+    },
+    [powered, fctn, mode, menu, buffer, opMode, battery]
+  );
+
+  let display = '';
+  let sub = '';
+  let badge = '';
+  if (!powered) {
+    display = '';
+  } else if (message) {
+    display = message;
+  } else if (menu !== null) {
+    if (menu === 0) { display = 'VOL  ' + volume; sub = 'PRESS 0-5'; }
+    else if (menu === 1) { display = 'CH ' + chan; sub = 'PRESS 1-6'; }
+    else if (menu === 2) { display = rfPwr; sub = '1=LO 2=ME 3=HI'; }
+    else if (menu === 3) { display = opMode; sub = '1=FH 2=SC/PT 3=SC/CT'; }
+  } else if (mode === 'freq_entry') {
+    display = buffer.padEnd(5, '_');
+    sub = 'FREQ ENTRY';
+  } else if (mode === 'store_select') {
+    display = 'STO CH?';
+    sub = 'PRESS 1-6';
+  } else if (fctn === 'STBY') {
+    display = 'STBY';
+  } else if (fctn === 'LD') {
+    display = 'LD  CH' + chan;
+    sub = 'PRESS FREQ';
+  } else if (fctn === 'TST') {
+    display = 'GOOD';
+    sub = 'SELF TEST';
+  } else if (fctn === 'Z') {
+    display = 'Z-FH';
+    sub = 'ZEROIZED';
+  } else if (fctn === 'REM') {
+    display = 'REM';
+    sub = 'REMOTE';
+  } else if (fctn === 'RXMT') {
+    display = 'RXMT';
+    sub = 'RETRANS';
+  } else if (fctn === 'SQ' || fctn === 'ON') {
+    if (opMode === 'FH') {
+      display = xmit ? 'XMIT' : 'FH';
+      sub = xmit ? 'TRANSMITTING' : rfPwr + ' CH' + chan;
+      badge = 'FH';
+    } else if (!loaded) {
+      display = 'FILL?';
+      sub = 'NO FREQ CH' + chan;
+    } else if (volume === 0) {
+      display = channels[chan];
+      sub = 'VOL ZERO';
+    } else {
+      display = xmit ? 'XMIT' : channels[chan];
+      sub = xmit ? 'TRANSMITTING' : rfPwr + ' CH' + chan;
+      badge = opMode === 'SC/CT' ? 'CT' : 'PT';
+    }
+  }
+
+  return {
+    FCTN_POSITIONS, CHANNELS, RF_POWER,
+    fctn, chan, rfPwr, opMode, volume, channels, menu, badge,
+    battery, antenna, handmic,
+    setChan, setRfPwr, setVolume, setBattery, setAntenna, setHandmic,
+    turnFctn, press,
+    powered, loaded, ready, display, sub,
+    xmit, setXmit,
+    errors,
+  };
+}
