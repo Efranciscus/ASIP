@@ -1,0 +1,19 @@
+import React from 'react';
+
+export default function RadioButton({ top, bottom, icon, onClick }) {
+  return (
+    <button
+      onClick={onClick}
+      className="h-[68px] rounded-[4px] bg-[#2b2b2b] border border-black/80 flex flex-col items-center justify-center gap-1 shadow-[0_3px_0_rgba(0,0,0,0.6),inset_0_1px_0_rgba(255,255,255,0.08)] active:translate-y-[2px] active:shadow-[0_1px_0_rgba(0,0,0,0.6)] transition-all"
+    >
+      {icon ? (
+        <span className="text-[#f0e68c] flex items-center justify-center">{icon}</span>
+      ) : (
+        <>
+          <span className="font-mono text-[10px] tracking-wider text-[#f0e68c] leading-none">{top}</span>
+          {bottom && <span className="font-mono text-[13px] tracking-wider text-[#f0e68c] leading-none">{bottom}</span>}
+        </>
+      )}
+    </button>
+  );
+}
