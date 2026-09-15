@@ -1,0 +1,32 @@
+import { useEffect, useRef, useState } from 'react';
+import { base44 } from '@/api/base44Client';
+
+export default function usePracticeSession({ r, user }) {
+  const startRef = useRef(Date.now());
+  const doneRef = useRef(false);
+  const [session, setSession] = useState(null);
+  const [status, setStatus] = useState('idle'); // idle | saving | saved | error
+
+  useEffect(() => {
+    if (r.ready && !doneRef.current) {
+      doneRef.current = true;
+      const completionTime = Math.round((Date.now() - startRef.current) / 1000);
+      const accuracy = Math.max(0, 100 - r.errors * 5);
+      setSession({ completionTime, accuracy, errors: r.errors, mode: r.opMode });
+      setStatus('saving');
+      base44.functions
+        .invoke('logPracticeSession', {
+          name: user?.name,
+          email: user?.email,
+          completionTime,
+          accuracy,
+          errors: r.errors,
+          mode: r.opMode,
+        })
+        .then(() => setStatus('saved'))
+        .catch(() => setStatus('error'));
+    }
+  }, [r.ready]);
+
+  return { session, status };
+}
